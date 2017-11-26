@@ -1,0 +1,23 @@
+From b27f64b22ec50284029910ed644f7c1af0ac50a8 Mon Sep 17 00:00:00 2001
+From: Joe Maples <joe@frap129.org>
+Date: Thu, 30 Jun 2016 21:33:52 +0000
+Subject: [PATCH] adreno idler: Ramp down more agressively
+
+Signed-off-by: Joe Maples <joe@frap129.org>
+---
+ drivers/devfreq/adreno_idler.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/devfreq/adreno_idler.c b/drivers/devfreq/adreno_idler.c
+index 0e6cd27b1b1..b3aa89c88a8 100644
+--- a/drivers/devfreq/adreno_idler.c
++++ b/drivers/devfreq/adreno_idler.c
+@@ -47,7 +47,7 @@ module_param_named(adreno_idler_idleworkload, idleworkload, ulong, 0664);
+    This implementation is to prevent micro-lags on scrolling or playing games.
+    Adreno idler will more actively try to ramp down the frequency
+    if this is set to a lower value. */
+-static unsigned int idlewait = 20;
++static unsigned int idlewait = 15;
+ module_param_named(adreno_idler_idlewait, idlewait, uint, 0664);
+ 
+ /* Taken from ondemand */

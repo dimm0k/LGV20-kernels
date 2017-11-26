@@ -1,0 +1,186 @@
+From 6566f968a0ac30fcb5a3fb58ec1b43097755bc92 Mon Sep 17 00:00:00 2001
+From: James Christopher Adduono <jc@adduono.com>
+Date: Tue, 29 Nov 2016 13:42:11 -0500
+Subject: [PATCH] Update exFAT to 1.2.24 (c6b174e)
+
+Change-Id: Ibb404953bfa3acd8a1ce8e6bcbfce40b64c39e6d
+---
+ fs/exfat/exfat_api.c     |  4 +---
+ fs/exfat/exfat_blkdev.c  | 13 ++++++++++---
+ fs/exfat/exfat_cache.c   | 15 ++++++++++-----
+ fs/exfat/exfat_cache.h   |  2 ++
+ fs/exfat/exfat_misc.c    |  5 +++--
+ fs/exfat/exfat_super.c   |  4 ++++
+ fs/exfat/exfat_version.h |  2 +-
+ fs/exfat/exfat_xattr.c   |  2 --
+ 8 files changed, 31 insertions(+), 16 deletions(-)
+
+diff --git a/fs/exfat/exfat_api.c b/fs/exfat/exfat_api.c
+index 693c9ab9..e859d2aa 100644
+--- a/fs/exfat/exfat_api.c
++++ b/fs/exfat/exfat_api.c
+@@ -18,6 +18,7 @@
+ 
+ #include "exfat_global.h"
+ 
++#include <linux/module.h>
+ #include <linux/version.h>
+ #include <linux/init.h>
+ 
+@@ -410,8 +411,6 @@ INT32 FsRemoveEntry(struct inode *inode, FILE_ID_T *fid)
+ 	return(err);
+ }
+ 
+-
+-
+ EXPORT_SYMBOL(FsMountVol);
+ EXPORT_SYMBOL(FsUmountVol);
+ EXPORT_SYMBOL(FsGetVolInfo);
+@@ -449,4 +448,3 @@ INT32 FsReleaseCache(struct super_block *sb)
+ 
+ EXPORT_SYMBOL(FsReleaseCache);
+ #endif
+-
+diff --git a/fs/exfat/exfat_blkdev.c b/fs/exfat/exfat_blkdev.c
+index 4968a6f1..dc00a2d9 100644
+--- a/fs/exfat/exfat_blkdev.c
++++ b/fs/exfat/exfat_blkdev.c
+@@ -157,13 +157,20 @@ INT32 bdev_sync(struct super_block *sb)
+ INT32 bdev_reada(struct super_block *sb, UINT32 secno, UINT32 num_secs)
+ {
+ 	BD_INFO_T *p_bd = &(EXFAT_SB(sb)->bd_info);
+-	int i;
++	UINT32 sects_per_page = (PAGE_SIZE >> sb->s_blocksize_bits);
++	struct blk_plug plug;
++	UINT32 i;
+ 
+ 	if (!p_bd->opened)
+ 		return (FFS_MEDIAERR);
+ 
+-	for (i = 0; i < num_secs; i++)
+-		__breadahead(sb->s_bdev, secno + i, 1 << sb->s_blocksize_bits);
++	blk_start_plug(&plug);
++	for (i = 0; i < num_secs; i++) {
++		if (i && !(i & (sects_per_page - 1)))
++			blk_flush_plug_list(&plug, false);
++		sb_breadahead(sb, secno + i);
++	}
++	blk_finish_plug(&plug);
+ 
+ 	return 0;
+ }
+diff --git a/fs/exfat/exfat_cache.c b/fs/exfat/exfat_cache.c
+index 1593be8d..90056059 100644
+--- a/fs/exfat/exfat_cache.c
++++ b/fs/exfat/exfat_cache.c
+@@ -740,19 +740,24 @@ INT32 buf_cache_readahead(struct super_block * sb, UINT32 sec)
+ {
+ 	FS_INFO_T *p_fs = &(EXFAT_SB(sb)->fs_info);
+ 	struct buffer_head *bh;
++	UINT32 max_ra_count = DCACHE_MAX_RA_SIZE >> sb->s_blocksize_bits;
++	UINT32 page_ra_count = PAGE_SIZE >> sb->s_blocksize_bits;
++	UINT32 adj_ra_count = max(p_fs->sectors_per_clu, page_ra_count);
++	UINT32 ra_count = min(adj_ra_count, max_ra_count);
+ 
+ 	if (p_fs->sectors_per_clu == 1)
+ 		return 0;
+ 
+-	if (sec < p_fs->root_start_sector)
++	if (sec < p_fs->data_start_sector)
+ 		return (FFS_MEDIAERR);
+ 
+-	if ((sec - p_fs->root_start_sector) & (p_fs->sectors_per_clu - 1))
+-		return (FFS_MEDIAERR);
++	/* Not sector aligned with ra_count, resize ra_count to page size */
++	if ((sec - p_fs->data_start_sector) & (ra_count - 1))
++		ra_count = page_ra_count;
+ 
+-	bh = __find_get_block(sb->s_bdev, sec, sb->s_blocksize);
++	bh = sb_find_get_block(sb, sec);
+ 	if (!bh || !buffer_uptodate(bh))
+-		bdev_reada(sb, sec, p_fs->sectors_per_clu);
++		bdev_reada(sb, sec, ra_count);
+ 
+ 	brelse(bh);
+ 
+diff --git a/fs/exfat/exfat_cache.h b/fs/exfat/exfat_cache.h
+index 96dbebb6..0b2c4007 100644
+--- a/fs/exfat/exfat_cache.h
++++ b/fs/exfat/exfat_cache.h
+@@ -28,6 +28,8 @@ extern "C" {
+ #define LOCKBIT                 0x01
+ #define DIRTYBIT                0x02
+ 
++#define DCACHE_MAX_RA_SIZE	(128*1024)
++
+ 	typedef struct __BUF_CACHE_T {
+ 		struct __BUF_CACHE_T *next;
+ 		struct __BUF_CACHE_T *prev;
+diff --git a/fs/exfat/exfat_misc.c b/fs/exfat/exfat_misc.c
+index f14ff935..0b02b4d8 100644
+--- a/fs/exfat/exfat_misc.c
++++ b/fs/exfat/exfat_misc.c
+@@ -3188,10 +3188,11 @@ DENTRY_T *get_entry_with_sector(struct super_block *sb, UINT32 sector, INT32 off
+ 
+ DENTRY_T *get_entry_in_dir(struct super_block *sb, CHAIN_T *p_dir, INT32 entry, UINT32 *sector)
+ {
++	FS_INFO_T *p_fs = &(EXFAT_SB(sb)->fs_info);
++	UINT32 dentries_per_page = PAGE_SIZE >> DENTRY_SIZE_BITS;
+ 	INT32 off;
+ 	UINT32 sec;
+ 	UINT8 *buf;
+-	FS_INFO_T *p_fs = &(EXFAT_SB(sb)->fs_info);
+ 
+ 	if (p_fs->dev_ejected)
+ 		return NULL;
+@@ -3202,7 +3203,7 @@ DENTRY_T *get_entry_in_dir(struct super_block *sb, CHAIN_T *p_dir, INT32 entry,
+ 		return NULL;
+ 
+ 	/* if first entry, then do read-ahead */
+-	if (!(entry & (p_fs->dentries_per_clu - 1)))
++	if (!(entry & (dentries_per_page - 1)))
+ 		buf_cache_readahead(sb, sec);
+ 
+ 	buf = buf_getblk(sb, sec);
+diff --git a/fs/exfat/exfat_super.c b/fs/exfat/exfat_super.c
+index 2c0b2c3b..8657c92a 100644
+--- a/fs/exfat/exfat_super.c
++++ b/fs/exfat/exfat_super.c
+@@ -2826,7 +2826,9 @@ static struct file_system_type exfat_fs_type = {
+ #endif
+ 	.fs_flags    = FS_REQUIRES_DEV,
+ };
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,9,0)
+ MODULE_ALIAS_FS("exfat");
++#endif
+ 
+ /* tuxera drop-in replacement compatibility */
+ #ifdef CONFIG_EXFAT_COMPAT_TUXERA
+@@ -2845,8 +2847,10 @@ static struct file_system_type texfat_fs_type = {
+ #endif
+ 	.fs_flags    = FS_REQUIRES_DEV,
+ };
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,9,0)
+ MODULE_ALIAS_FS("texfat");
+ #endif
++#endif
+ 
+ static int __init init_exfat_fs(void)
+ {
+diff --git a/fs/exfat/exfat_version.h b/fs/exfat/exfat_version.h
+index 721ca1ce..872baa40 100644
+--- a/fs/exfat/exfat_version.h
++++ b/fs/exfat/exfat_version.h
+@@ -1 +1 @@
+-#define EXFAT_VERSION	"1.2.23"
++#define EXFAT_VERSION	"1.2.24"
+diff --git a/fs/exfat/exfat_xattr.c b/fs/exfat/exfat_xattr.c
+index 3c58b4da..e1ae2307 100644
+--- a/fs/exfat/exfat_xattr.c
++++ b/fs/exfat/exfat_xattr.c
+@@ -34,5 +34,3 @@ int exfat_removexattr(struct dentry *dentry, const char *name) {
+ 		return -EOPNOTSUPP;
+ 	return 0;
+ }
+-
+-

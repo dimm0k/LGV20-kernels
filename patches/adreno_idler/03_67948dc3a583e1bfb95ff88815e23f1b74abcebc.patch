@@ -1,0 +1,44 @@
+From 67948dc3a583e1bfb95ff88815e23f1b74abcebc Mon Sep 17 00:00:00 2001
+From: arter97 <qkrwngud825@gmail.com>
+Date: Thu, 11 Jun 2015 22:01:45 +0900
+Subject: [PATCH] adreno_idler: remove frequency bump
+
+Allow msm-adreno-tz to figure out the appropriate frequency for
+the current workload.
+
+We don't need to bump up the frequency within the Adreno idler's
+routine.
+
+This should give some extra plus to power savings.
+
+Bump up to version 1.1.
+
+Signed-off-by: arter97 <qkrwngud825@gmail.com>
+---
+ drivers/devfreq/adreno_idler.c | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/drivers/devfreq/adreno_idler.c b/drivers/devfreq/adreno_idler.c
+index e946f5be4df..3a5a089b60b 100644
+--- a/drivers/devfreq/adreno_idler.c
++++ b/drivers/devfreq/adreno_idler.c
+@@ -35,7 +35,7 @@
+ #include <linux/msm_adreno_devfreq.h>
+ 
+ #define ADRENO_IDLER_MAJOR_VERSION 1
+-#define ADRENO_IDLER_MINOR_VERSION 0
++#define ADRENO_IDLER_MINOR_VERSION 1
+ 
+ /* stats.busy_time threshold for determining if the given workload is idle.
+    Any workload higher than this will be treated as non-idle workload,
+@@ -83,10 +83,7 @@ int adreno_idler(struct devfreq_dev_status stats, struct devfreq *devfreq,
+ 			return 1;
+ 		}
+ 	} else {
+-		/* This is the case where msm-adreno-tz don't use the lowest frequency.
+-		   Mimic this behavior by bumping up the frequency. */
+ 		idlecount = 0;
+-		*freq = devfreq->profile->freq_table[devfreq->profile->max_state - 2];
+ 		/* Do not return 1 here and allow rest of the algorithm to
+ 		   figure out the appropriate frequency for current workload.
+ 		   It can even set it back to lowest frequency. */

@@ -1,0 +1,33 @@
+From c5b755595caaedcad0d7683ac9bccb5f8e34dca5 Mon Sep 17 00:00:00 2001
+From: flar2 <asegaert@gmail.com>
+Date: Sat, 21 May 2016 23:37:35 -0400
+Subject: [PATCH] FIOPS: update for linux 3.18
+
+---
+ block/fiops-iosched.c | 6 ++----
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/block/fiops-iosched.c b/block/fiops-iosched.c
+index 5aa58da5bb6..a7fcb6fb8f7 100644
+--- a/block/fiops-iosched.c
++++ b/block/fiops-iosched.c
+@@ -501,7 +501,7 @@ static void fiops_insert_request(struct request_queue *q, struct request *rq)
+ static inline void fiops_schedule_dispatch(struct fiops_data *fiopsd)
+ {
+ 	if (fiopsd->busy_queues)
+-		kblockd_schedule_work(fiopsd->queue, &fiopsd->unplug_work);
++		kblockd_schedule_work(&fiopsd->unplug_work);
+ }
+ 
+ static void fiops_completed_request(struct request_queue *q, struct request *rq)
+@@ -528,9 +528,7 @@ fiops_find_rq_fmerge(struct fiops_data *fiopsd, struct bio *bio)
+ 	cic = fiops_cic_lookup(fiopsd, tsk->io_context);
+ 
+ 	if (cic) {
+-		sector_t sector = bio->bi_sector + bio_sectors(bio);
+-
+-		return elv_rb_find(&cic->sort_list, sector);
++		return elv_rb_find(&cic->sort_list, bio_end_sector(bio));
+ 	}
+ 
+ 	return NULL;

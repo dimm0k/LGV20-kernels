@@ -58,6 +58,7 @@ config EXFAT_DISCARD
 
 config EXFAT_COMPAT_TUXERA
 	bool "Tuxera compatibility for exFAT"
+	default y
 	depends on EXFAT_FS
 	help
 	  Say Y here to have the exFAT driver also register as texfat
